@@ -15,11 +15,16 @@ Including another URLconf
 """
 from django.conf.urls import include
 from django.contrib import admin
+from django.http import HttpResponse
 from django.urls import path
 from django.conf.urls import url
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
+
+
+def healthz(request):  # ponytail: DB-independent
+    return HttpResponse("ok", status=200)
 
 
 def trigger_error(request):
@@ -42,6 +47,7 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    path('healthz/', healthz),
     path('sentry-debug/', trigger_error),
     url(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     url(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),

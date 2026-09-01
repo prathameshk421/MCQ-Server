@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [staging]
+  push:
+    branches: [staging]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: mcq_test
+          POSTGRES_USER: mcq
+          POSTGRES_PASSWORD: mcq
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mcq -d mcq_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DB_ENGINE: django.db.backends.postgresql
+      POSTGRES_DB: mcq_test
+      POSTGRES_USER: mcq
+      POSTGRES_PASSWORD: mcq
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DJANGO_DEBUG: "False"
+      SECRET_KEY: ci-only-secret
+      SENTRY_SDK_DSN: ""
+      ALLOWED_HOSTS: "*"
+      MCQ_DEPLOYMENT: "1"
+      MCQ_LEGACY_ANSWER_SUNSET: "Sat, 31 Dec 2026 23:59:59 GMT"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+      - name: Run production checks
+        run: python manage.py check --deploy
+      - name: Verify migrations are committed
+        run: python manage.py makemigrations --check --dry-run
+      - name: Apply migrations
+        run: python manage.py migrate --noinput
+      - name: Run tests
+        run: python manage.py test --verbosity 2
+      - name: Build application image with commit SHA
+        working-directory: .
+        run: docker build --file server/Dockerfile --tag ghcr.io/${{ github.repository_owner }}/mcq-server:sha-${{ github.sha }} server
+      - name: Smoke check inside built image
+        working-directory: .
+        run: docker run --rm ghcr.io/${{ github.repository_owner }}/mcq-server:sha-${{ github.sha }} python manage.py check
