@@ -37,16 +37,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
+DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("1", "true", "yes")
+# ponytail: require SECRET_KEY in prod, default only for dev
+SECRET_KEY = os.environ.get("SECRET_KEY", default="django-insecure-ncs&&)001*$$7mgs822pvidtwj(pf=jc=g851__q!ysy5bkwzk")
 
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY",
-    default="django-insecure-ncs&&)001*$$7mgs822pvidtwj(pf=jc=g851__q!ysy5bkwzk",
-)
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",") if os.environ.get("ALLOWED_HOSTS") else ["*"]
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = bool(os.environ.get("DJANGO_DEBUG", default=True))
+# ponytail: legacy answer sunset required for Deprecation header
+MCQ_LEGACY_ANSWER_SUNSET = os.environ.get("MCQ_LEGACY_ANSWER_SUNSET", "Sat, 31 Dec 2026 23:59:59 GMT")
 
-ALLOWED_HOSTS = ["*"]
+# production security behind deployment flag (HTTPS proxy)
+if os.environ.get("MCQ_DEPLOYMENT", "").lower() in ("1", "true", "yes"):
+    # ponytail: minimal prod hardening, only when behind HTTPS proxy
+    if not DEBUG:
+        SECURE_SSL_REDIRECT = True
+        SESSION_COOKIE_SECURE = True
+        CSRF_COOKIE_SECURE = True
+        SECURE_HSTS_SECONDS = 31536000
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = True
+        SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Application definition
 
@@ -182,13 +192,29 @@ REST_FRAMEWORK = {
 
 SWAGGER_SETTINGS = {
     "SECURITY_DEFINITIONS": {
-        "Bearer": {"type": "apiKey", "name": "Authorization", "in": "header"}
+        "TokenJWT": {"type": "apiKey", "name": "Authorization", "in": "header", "description": "Token <access JWT>"}
     }
 }
 
 # CELERY SETTINGS
-CELERY_BROKER_URL = "redis://redis:6379"
-CELERY_RESULT_BACKEND = "redis://redis:6379"
+CELERY_BROKER_URL = os.environ["CELERY_BROKER_URL"] if "CELERY_BROKER_URL" in os.environ else "redis://celery-broker:6379/0"
+CELERY_RESULT_BACKEND = None  # ponytail: PG is durable store
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_CONNECTION_RETRY = True
+CELERY_TASK_SOFT_TIME_LIMIT = 60
+CELERY_TASK_TIME_LIMIT = 75
+CELERY_TASK_DEFAULT_QUEUE = "mcq-results"
+CELERY_TASK_ROUTES = {
+    "core.tasks.process_result": {"queue": "mcq-results"},
+    "core.tasks.dispatch_pending_scores": {"queue": "mcq-maintenance"},
+}
+CELERY_BEAT_SCHEDULE = {
+    "dispatch_pending_scores": {"task": "core.tasks.dispatch_pending_scores", "schedule": 60.0},
+}
+CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 3600}
 
 # DJOSER SETTINGS 
 DJOSER = {
