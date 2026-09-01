@@ -3,53 +3,88 @@ version: "3"
 services:
   server:
     container_name: server
-    build:
-      context: ./server
+    image: ghcr.io/${GHCR_OWNER:-pict-acm-student-chapter}/mcq-server:${MCQ_IMAGE_TAG:-staging}
     stdin_open: true
     tty: true
     working_dir: /src
     ports:
       - "8000:8000"
-    volumes:
-      - ./server:/src
-      - run_vol:/var/run
-      - cache_vol:/var/cache
-      - tmp_vol:/tmp
     env_file:
-      - .env.dev
+      - .env.production
     environment:
       - DJANGO_DEBUG=False
       - GUNICORN_WORKERS=5
-    command: >
-      sh -c "sh migrations.sh && gunicorn -w 5 --reload -b 0.0.0.0:8000 --log-level info server.wsgi"
+      - CELERY_BROKER_URL=redis://celery-broker:6379/0
+    command: gunicorn -w 5 -b 0.0.0.0:8000 --log-level info server.wsgi
     depends_on:
-      - db
+      db:
+        condition: service_started
+      celery-broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz/').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   db:
     container_name: db
-    image: postgres
+    image: postgres:14
     env_file:
-      - .env.dev
+      - .env.production
   
-  redis:
-    container_name: redis
-    image: redis:alpine
+  celery-broker:
+    container_name: celery-broker
+    image: redis:7.2-alpine
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory $${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
+    volumes:
+      - celery_broker_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
   
   celery:
     restart: always
-    build:
-      context: ./server
-    command: celery -A server worker -l info
-    volumes:
-      - ./server:/server
+    image: ghcr.io/${GHCR_OWNER:-pict-acm-student-chapter}/mcq-server:${MCQ_IMAGE_TAG:-staging}
+    command: celery -A server worker -l info --queues=mcq-results,mcq-maintenance --concurrency=$${CELERY_CONCURRENCY:-2} --max-tasks-per-child=500 --max-memory-per-child=262144
     env_file:
-      - .env.dev
+      - .env.production
+    environment:
+      - CELERY_BROKER_URL=redis://celery-broker:6379/0
     depends_on:
-      - db
-      - redis
-      - server
+      db:
+        condition: service_started
+      celery-broker:
+        condition: service_healthy
+
+  celery-beat:
+    container_name: celery-beat
+    restart: always
+    image: ghcr.io/${GHCR_OWNER:-pict-acm-student-chapter}/mcq-server:${MCQ_IMAGE_TAG:-staging}
+    command: celery -A server beat -l info
+    env_file:
+      - .env.production
+    environment:
+      - CELERY_BROKER_URL=redis://celery-broker:6379/0
+    depends_on:
+      db:
+        condition: service_started
+      celery-broker:
+        condition: service_healthy
+
+  migrate:
+    image: ghcr.io/${GHCR_OWNER:-pict-acm-student-chapter}/mcq-server:${MCQ_IMAGE_TAG:-staging}
+    env_file:
+      - .env.production
+    command: python manage.py migrate --noinput
+    depends_on:
+      db:
+        condition: service_started
 
 volumes:
+  celery_broker_data:
   run_vol:
     driver_opts:
       type: tmpfs

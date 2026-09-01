@@ -28,27 +28,58 @@ services:
     env_file:
       - .env.dev
 
-  redis:
-    container_name: redis
-    image: redis:alpine
+  celery-broker:
+    container_name: celery-broker
+    image: redis:7.2-alpine
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory $${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
+    volumes:
+      - celery_broker_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - REDIS_MAXMEMORY=512mb
 
   celery:
     container_name: celery
     restart: always
     build:
       context: ./server
-    command: celery -A server worker -l info
+    command: celery -A server worker -l info --queues=mcq-results,mcq-maintenance --concurrency=$${CELERY_CONCURRENCY:-2} --max-tasks-per-child=500 --max-memory-per-child=262144
     volumes:
-      - ./server:/server
+      - ./server:/src
     env_file:
       - .env.dev
+    environment:
+      - CELERY_BROKER_URL=redis://celery-broker:6379/0
     depends_on:
-      - db
-      - redis
-      - server
+      db:
+        condition: service_started
+      celery-broker:
+        condition: service_healthy
+
+  celery-beat:
+    container_name: celery-beat
+    build:
+      context: ./server
+    command: celery -A server beat -l info
+    volumes:
+      - ./server:/src
+    env_file:
+      - .env.dev
+    environment:
+      - CELERY_BROKER_URL=redis://celery-broker:6379/0
+    depends_on:
+      db:
+        condition: service_started
+      celery-broker:
+        condition: service_healthy
 
 
 volumes:
+  celery_broker_data:
   run_vol:
     driver_opts:
       type: tmpfs
