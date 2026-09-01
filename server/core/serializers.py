@@ -24,7 +24,7 @@ class LoginSerializer(serializers.Serializer):
 class EventListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
-        fields = ['id', 'name', 'start_time', 'end_time', 'ems_event_id', 'ems_slot_id', 'image_url', 'rules']
+        fields = ['id', 'name', 'start_time', 'end_time', 'external_event_id', 'external_slot_id', 'image_url', 'rules']
 
 class UserEventListSerializer(serializers.ModelSerializer):
     fk_event = EventListSerializer()
@@ -62,10 +62,29 @@ class UserQuestionGetSerializer(serializers.ModelSerializer):
         fields = ['id', 'fk_question', 'answer','review_status']
 
 
-class UserQuestionAnswerSerializer(serializers.ModelSerializer):
+class UserQuestionAnswerUpdateSerializer(serializers.Serializer):  # ponytail: explicit reject, minimal fields
+    answer = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=3)
+    review_status = serializers.BooleanField(required=False)
+
+    def validate(self, attrs):
+        allowed = {"answer", "review_status"}
+        unknown = set(self.initial_data.keys()) - allowed
+        if unknown:
+            raise serializers.ValidationError({k: "Unknown field." for k in unknown})
+        if not attrs:
+            raise serializers.ValidationError("At least one of answer or review_status is required.")
+        return attrs
+
+
+class UserQuestionAnswerResponseSerializer(serializers.ModelSerializer):
+    question_id = serializers.UUIDField(source="fk_question.id", read_only=True)
 
     class Meta:
         model = User_Question
-        fields = ['id', 'fk_question', 'answer', 'review_status']
-        read_only_fields=['id', 'fk_question']
+        fields = ['id', 'question_id', 'answer', 'review_status', 'updated_at']
+        read_only_fields = fields
 
+
+# ponytail: keep legacy name as wrapper alias
+class UserQuestionAnswerSerializer(UserQuestionAnswerUpdateSerializer):
+    pass
