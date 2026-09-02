@@ -36,7 +36,7 @@ services:
   celery-broker:
     container_name: celery-broker
     image: redis:7.2-alpine
-    command: redis-server --appendonly yes --appendfsync everysec --maxmemory $${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 512mb --maxmemory-policy noeviction
     volumes:
       - celery_broker_data:/data
     healthcheck:
@@ -48,7 +48,7 @@ services:
   celery:
     restart: always
     image: ghcr.io/${GHCR_OWNER:-pict-acm-student-chapter}/mcq-server:${MCQ_IMAGE_TAG:-staging}
-    command: celery -A server worker -l info --queues=mcq-results,mcq-maintenance --concurrency=$${CELERY_CONCURRENCY:-2} --max-tasks-per-child=500 --max-memory-per-child=262144
+    command: celery -A server worker -l info --queues=mcq-results,mcq-maintenance --concurrency=${CELERY_CONCURRENCY:-2} --max-tasks-per-child=500 --max-memory-per-child=262144
     env_file:
       - .env.production
     environment:

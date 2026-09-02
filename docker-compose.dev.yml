@@ -31,7 +31,7 @@ services:
   celery-broker:
     container_name: celery-broker
     image: redis:7.2-alpine
-    command: redis-server --appendonly yes --appendfsync everysec --maxmemory $${REDIS_MAXMEMORY:-512mb} --maxmemory-policy noeviction
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 512mb --maxmemory-policy noeviction
     volumes:
       - celery_broker_data:/data
     healthcheck:
@@ -39,15 +39,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    environment:
-      - REDIS_MAXMEMORY=512mb
 
   celery:
     container_name: celery
     restart: always
     build:
       context: ./server
-    command: celery -A server worker -l info --queues=mcq-results,mcq-maintenance --concurrency=$${CELERY_CONCURRENCY:-2} --max-tasks-per-child=500 --max-memory-per-child=262144
+    command: celery -A server worker -l info --queues=mcq-results,mcq-maintenance --concurrency=${CELERY_CONCURRENCY:-2} --max-tasks-per-child=500 --max-memory-per-child=262144
     volumes:
       - ./server:/src
     env_file:
